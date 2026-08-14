@@ -1,0 +1,64 @@
+[project]
+name = "adserve-sim"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Daniel  Sanchez Flamarich", email = "danielsflamarich@MacBook-MacBook-Pro-de-Daniel.local" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "catboost>=1.2.10",
+    "mlflow>=3.15.1",
+    "numpy>=2.5.2",
+    "pandas>=2.3.3",
+    "pyarrow>=25.0.1",
+    "pydantic>=2.13.4",
+    "scikit-learn>=1.9.0",
+    "structlog>=26.1.0",
+]
+
+[project.scripts]
+adserve-sim = "adserve_sim:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "mypy>=2.3.0",
+    "nbstripout>=0.9.1",
+    "pandas-stubs>=3.0.5.260730",
+    "pre-commit>=4.6.2",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.16.3",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "ANN", "D"]
+ignore = ["D203", "D213", "ANN401"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["D", "ANN"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+
+[[tool.mypy.overrides]]
+module = ["catboost.*", "mlflow.*", "sklearn.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --cov=adserve_sim --cov-report=term-missing"

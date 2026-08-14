@@ -1,0 +1,30 @@
+# macOS
+.DS_Store
+
+# Datasets; download scripts only
+data/raw/*
+data/interim/*
+data/processed/*
+!data/**/.gitkeep
+*.csv
+*.parquet
+*.gz
+
+# Traffic captures; never publish endpoints or tokens
+*.har
+*.pcap
+captures/
+
+# MLflow
+mlruns/
+mlartifacts/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
