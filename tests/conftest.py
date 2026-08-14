@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from adserve_sim.data.schema import RAW_COLUMNS
+from adserve_sim.data.schema import RAW_COLUMNS, TIMESTAMP, parse_hour
 
 
 @pytest.fixture
@@ -30,3 +30,11 @@ def raw_frame() -> pd.DataFrame:
     data["hour"] = rng.choice(hours, n)
 
     return pd.DataFrame(data)[list(RAW_COLUMNS)]
+
+
+@pytest.fixture
+def dated_frame(raw_frame: pd.DataFrame) -> pd.DataFrame:
+    """The raw fixture with a parsed timestamp column, sorted chronologically."""
+    frame = raw_frame.copy()
+    frame[TIMESTAMP] = parse_hour(frame["hour"])
+    return frame.sort_values(TIMESTAMP).reset_index(drop=True)
