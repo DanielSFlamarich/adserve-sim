@@ -19,3 +19,13 @@ repos:
     rev: 0.9.1
     hooks:
       - id: nbstripout
+  - repo: local
+    hooks:
+      - id: path-header
+        name: first line must be the file's path
+        entry: >
+          bash -c 'fail=0; for f in "$@"; do
+          [ "$(head -1 "$f")" = "# $f" ] || { echo "$f: line 1 should be \"# $f\""; fail=1; };
+          done; exit $fail' --
+        language: system
+        types: [ python ]
