@@ -6,14 +6,14 @@ import datetime as dt
 
 import pandas as pd
 import pytest
+
+from adserve_sim.data.schema import TIMESTAMP, SchemaError
 from adserve_sim.data.split import (
     LeakageError,
     TemporalSplit,
     split_at,
     split_by_day,
 )
-
-from adserve_sim.data.schema import TIMESTAMP, SchemaError
 
 
 def test_split_by_day_partitions_all_rows(dated_frame: pd.DataFrame) -> None:
