@@ -1,64 +1,176 @@
 # adserve-sim
 
-A simulator for mobile display ad serving: replays real CTR logs through a
-ranking and auction path, and measures how calibration error propagates into
-revenue.
+[![CI](https://github.com/DanielSFlamarich/adserve-sim/actions/workflows/ci.yml/badge.svg)](https://github.com/DanielSFlamarich/adserve-sim/actions/workflows/ci.yml)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![uv](https://img.shields.io/badge/uv-managed-DE5FE9?logo=uv&logoColor=white)](https://github.com/astral-sh/uv)
+[![Ruff](https://img.shields.io/badge/lint-ruff-D7FF64?logo=ruff&logoColor=black)](https://github.com/astral-sh/ruff)
+[![mypy](https://img.shields.io/badge/types-mypy%20strict-2A6DB2)](https://mypy-lang.org/)
+[![pytest](https://img.shields.io/badge/tests-pytest-0A9EDC?logo=pytest&logoColor=white)](https://docs.pytest.org/)
+[![MLflow](https://img.shields.io/badge/tracking-MLflow-0194E2?logo=mlflow&logoColor=white)](https://mlflow.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-The question it exists to answer is narrow and concrete: **if a click-prediction
-model is well-ranked but badly calibrated, what does that cost at auction?**
-AUC is invariant to monotone transformations of the score, so a model can rank
-perfectly and still price every impression wrong. In an ad system where the bid
-is `value x pCTR`, that error lands directly on revenue.
+A simulator for mobile display ad serving. It replays real ad-request logs
+through a prediction model and an auction, and measures what happens to revenue
+when the model's predicted click probabilities are wrong in a specific way.
 
 Not affiliated with, endorsed by, or derived from any ad platform operator.
 
-## Why a simulator
+## Concepts
 
-Real ad-serving data is not public. What *is* public is a set of research
-datasets containing real requests, real clicks, and real auction clearing
-prices. This project treats those logs as the environment and supplies its own
-agent: the ranking policy, the bidder, the pacing controller.
+**Impression**: one ad shown to one person, once. The basic unit of everything
+here: one row of data, one decision, one outcome.
 
-That division is deliberate. Everything about the traffic — arrival rates,
-hourly seasonality, feature distributions, base click rates — is real and
-untouched. Everything about the decision-making is mine, and therefore something
-I can vary and measure. Nothing is synthetic except the parts that *should* be
-synthetic.
+**Ad request**: the moment a phone app has a slot to fill and asks a server
+what to put in it. The server has some tens of milliseconds and knows only what
+the app tells it: roughly where the slot is, what kind of app, what kind of
+device. It does not know who the person is or what they will do.
 
-## Design commitments
+**CTR (click-through rate)**: clicks divided by impressions.
+**pCTR** is a model's *predicted* probability that a
+specific impression will be clicked.
 
-Three choices shape most of the code.
+**eCPM (effective cost per mille)**: expected revenue per thousand
+impressions. It is how otherwise incomparable ads get compared: a cheap ad that
+is often clicked can be worth more than an expensive one that never is.
 
-**Time is not shuffled.** Ad serving is forecasting: a model fitted today is
-scored on traffic that has not happened yet. Splits cut on whole-day boundaries,
-and the leakage check runs in `TemporalSplit.__post_init__` — an invalid split
-cannot be constructed, rather than being detectable after the fact.
+**Auction**: several advertisers want the same slot, so the server ranks them
+and picks one. In a **second-price** auction the winner pays what the
+*runner-up* bid, not their own bid, which under standard assumptions, removes
+the incentive to shade bids downward and makes bidding the true value the
+sensible strategy.
 
-**Policies cannot see labels.** The replay stream yields `AdRequest` (features,
-no outcome) and `Outcome` as separate objects. A policy handed a request has no
-access to the click. This is enforced by the type, not by convention, and tested
-against the dataclass fields so that adding a label-bearing field later fails
-the suite.
+**Reserve price**: a floor the publisher sets. Bids below it lose, and the slot
+goes unfilled. Raising the reserve extracts more from the auctions you still
+win, but wins fewer of them.
 
-**Failures are loud.** Unparseable timestamps raise instead of coercing to
-`NaT`; unsorted input to replay raises instead of being silently re-sorted;
-missing columns raise instead of producing a quietly different feature space.
-Every one of these would otherwise surface much later as an unexplained metric
-shift.
+**Fill rate**: the share of ad requests that end up showing an ad. A reserve
+price too high leaves slots empty.
 
-## Data
+**Calibration**: whether predicted probabilities match observed frequencies.
+Across all the impressions a model scored at 2%, did about 2% get clicked? A
+model can be badly calibrated and still be useful for some purposes, which is
+exactly the problem this project is about.
+
+**Ranking quality (AUC)**: whether the model puts likelier clicks above less
+likely ones. Note that this is a question about *order*, not about the numbers
+themselves.
+
+## The question
+
+**If a model ranks impressions correctly but predicts the wrong probabilities,
+what does that cost?**
+
+The two properties come apart, and the reason is worth stating precisely.
+Ranking quality only cares about order. Multiply every prediction by 1.5 and the
+order is untouched, AUC does not move at all. The model is exactly as good at
+telling likely clicks from unlikely ones as it was before.
+
+But an ad server does not only rank. It prices. A bid is roughly
+
+```
+bid = value_of_a_click x predicted_click_probability
+```
+
+and if the second term is 50% too high across the board, every bid is 50% too
+high. The advertiser overpays, or the publisher sets a reserve price against
+inflated bids and misjudges the floor, or budgets exhaust by lunchtime. The
+ranking was perfect throughout. The money was still wrong.
+
+This is a common and consequential failure, for a mundane reason: the standard
+metric for click models is AUC, and AUC cannot see it. A team can watch AUC
+improve release over release while calibration quietly drifts, and nothing in
+the offline evaluation says so. It shows up in spend.
+
+Measuring the cost requires an auction. On a static dataset you can compute a
+calibration error and report it as a number, but you cannot say what it was
+worth, because "worth" only exists once bids compete for a slot. That is what
+this simulator supplies.
+
+## Why a simulator, and where the data comes from
+
+Real ad-serving data is not public, and neither is any production ad server. But
+two things *are* available, so combining them is the approach here.
+
+**Real traffic**, from public research datasets: genuine ad requests with
+genuine features and genuine click outcomes, including the hourly rhythm of real
+usage. Everything about the environment is real and untouched.
+
+**A real request contract**, from the publicly documented
+[RUNA mobile SDK](https://rakuten-ads.github.io). The SDK is the publisher-side
+half of an ad system, the code inside an app that requests an ad, renders it,
+and fires impression, viewability and click beacons. Reading it tells you what
+fields a live server actually receives at decision time, which ad formats exist
+(banner, carousel, interstitial), and that viewability is measured through the
+IAB Open Measurement standard rather than assumed.
+
+That last detail; a viewability signal in the contract means
+viewable-eCPM, not raw eCPM, is the quantity a publisher cares about, which
+changes what the ranking function should optimise. Modelling against a real
+contract keeps the simulator's assumptions anchored to how ad serving is
+actually built, rather than to a textbook diagram.
+
+**NOTE:** this project does not call the SDK, does not
+contact any ad server, and uses no proprietary data. It borrows the *shape* of
+the request from the public documentation and fills it with public research data.
+
+What is simulated is only the decision-making: the ranking policy, the bidder,
+the auction. Those are mine, and therefore things I can vary and measure.
 
 | Dataset | Role | Licence |
 |---|---|---|
 | [Avazu CTR](https://www.kaggle.com/competitions/avazu-ctr-prediction) | Request stream, features, click labels | Competition terms; Kaggle account required |
-| [iPinYou](https://contest.ipinyou.com/) | Competing-bid distribution (`payprice`) | Research use |
+| [iPinYou](https://contest.ipinyou.com/) | Competing-bid distribution | Research use |
 | [Criteo Attribution](https://ailab.criteo.com/criteo-attribution-modeling-bidding-dataset/) | Conversion delay distribution *(planned)* | CC-BY-NC |
 | [Open Bandit](https://research.zozo.com/data.html) | Logged propensities for off-policy evaluation *(planned)* | CC-BY |
 
-No dataset is committed to this repository. `download.py` fetches Avazu via the
-Kaggle CLI and prints manual instructions if credentials are absent — the
-competition requires interactively accepting its rules, so the fetch cannot be
-made fully unattended.
+No dataset is committed here. `download.py` fetches Avazu through the Kaggle
+CLI and prints manual instructions if credentials are missing, since the
+competition requires accepting its rules interactively.
+
+## How the code is built
+
+Three principles.
+
+### Never train on the future
+
+A model deployed on Monday is scored on Tuesday's traffic. So evaluation has to
+imitate that: fit on earlier days, test on later ones.
+
+This project splits on day boundaries: the last two days are the test set, the
+day before that is validation, everything earlier is training. The check that
+these three windows do not overlap runs **automatically whenever a split object
+is created**. There is no separate "remember to validate" step that someone can
+forget, because a split that overlaps cannot be built in the first place, the
+constructor will refuse.
+
+### Never let the model see the answer
+
+When the simulator replays a logged impression, it produces two separate
+objects: the **request** (what an ad server would know at decision time (device
+type, slot position, app category) and the **outcome** (whether the click
+happened).
+
+A prediction model is handed the request only. The outcome is used afterwards,
+to score what the model decided. This sounds obvious, but leakage bugs are
+usually accidental: a stray column, a feature computed after the fact, and the
+separation makes the mistake structurally difficult rather than merely
+discouraged. A test asserts that the request object contains exactly three
+things, none of which is the click, so any future change that smuggles the
+answer in fails immediately.
+
+### Fail loudly, not quietly
+
+Where a shortcut would let bad data pass, the code stops instead:
+
+- A timestamp that will not parse raises an error, rather than becoming a null
+  that silently disappears from a later filter.
+- Data arriving out of chronological order raises, rather than being quietly
+  re-sorted because if it arrived unsorted, something upstream is broken, and
+  fixing the symptom hides it.
+- A missing column raises, rather than producing a model trained on a different
+  feature set than intended.
+Each of these would otherwise show up weeks later as a metric that moved for no
+apparent reason.
 
 ## Layout
 
@@ -66,7 +178,7 @@ made fully unattended.
 src/adserve_sim/
   data/
     schema.py      column contract, timestamp parsing
-    download.py    Kaggle fetch, per-hour stratified sample
+    download.py    dataset fetch, per-hour stratified sample
     split.py       day-boundary train/validation/test
   sim/
     replay.py      chronological request stream
@@ -75,75 +187,94 @@ reports/           written findings and figures
 references/        dataset licences, SDK contract notes
 ```
 
+## Requirements
+
+| | Tool | Purpose |
+|---|---|---|
+| **Python 3.12** | Pinned in `.python-version`; `uv` installs it if absent |
+| **uv** | Dependency resolution and virtual environment |
+| **CatBoost** | Gradient-boosted trees with native categorical handling |
+| **pandas / NumPy / PyArrow** | Data handling and Parquet I/O |
+| **scikit-learn** | Calibration and evaluation metrics |
+| **MLflow** | Experiment tracking |
+| **Ruff** | Linting and formatting |
+| **mypy** | Static typing, strict mode |
+| **pytest** | Test suite |
+| **pre-commit** | Git hooks |
+| **Kaggle account** | Required to download Avazu (see Data) |
+
+Install everything with `make install`, `uv` reads `uv.lock`, so the
+environment resolves identically here and in CI.
+
 ## Running it
 
 ```bash
-make install       # uv sync + pre-commit hooks
-make check         # ruff, format, mypy --strict, pytest
-make data          # fetch and prepare the Avazu sample
+make install       # dependencies and git hooks
+make check         # lint, format, types, tests
+make data          # fetch and prepare the sample
 ```
 
-`make check` is the gate. It runs everything CI runs, in the same order.
+`make check` is the gate, it runs exactly what CI runs, in the same order.
 
-## Plan
 
-Five steps to a working v0. Each lands as its own commit with tests, and each
-has a check that fails if the step is wrong rather than merely incomplete.
 
-### 1. Data acquisition — done
+### 1. Data acquisition
 
-`schema.py`, `download.py`. Pins the 24-column contract; samples stratified by
-hour so the daily volume curve survives sampling.
+Pin the column contract; sample stratified by hour so the daily traffic curve
+survives sampling.
 
-*Verified:* max hourly-share drift under 0.01 between source and sample;
-sampling is deterministic under a fixed seed.
+*Check:* hourly distribution of the sample matches the source within 1%;
+sampling is reproducible from a seed.
 
-### 2. Temporal split and replay — done
+### 2. Temporal split and replay
 
-`split.py`, `replay.py`. Day-boundary partitions with leakage enforced at
-construction; a chronological stream that withholds outcomes from policies.
+Day-boundary partitions with the overlap check enforced at construction; a
+chronological request stream that withholds outcomes.
 
-*Verified:* partitions are strictly ordered and share no impression ids;
-`AdRequest` exposes exactly three fields, none of them the label.
+*Check:* windows are strictly ordered and share no impressions; the request
+object exposes three fields, none of them the label.
 
-### 3. Features and pCTR model — next
+### 3. Features and click prediction
 
-CatBoost on the split, tracked in MLflow. Avazu's categoricals are
-high-cardinality (`device_ip`, `device_id` run to millions of distinct values),
-so the encoding choice is the substantive decision: CatBoost's native ordered
-target statistics as the baseline, with an explicit out-of-fold target encoder
-as a comparison. The comparison is the point — it shows the leakage mechanism
-rather than delegating it to a library.
+Gradient-boosted trees on the split, tracked with MLflow.
 
-*Check:* test-set AUC above a frequency-only baseline; encoder comparison
-recorded as two MLflow runs.
+Avazu's categorical fields are enormous: `device_ip` and `device_id` run to
+millions of distinct values, so how they are encoded is the real decision.
+CatBoost handles this natively using ordered target statistics, an approach
+designed specifically to avoid the leakage that naive target encoding causes.
+The baseline uses it; a hand-written out-of-fold encoder runs alongside as a
+comparison, because implementing the mechanism demonstrates understanding it in
+a way that calling a library does not.
+
+*Check:* test AUC beats a frequency-only baseline; both encoders recorded as
+separate MLflow runs.
 
 ### 4. Calibration
 
-Isotonic against Platt scaling, fitted on validation and evaluated on test.
-Reliability diagrams and expected calibration error.
+Fit isotonic regression and Platt scaling on the validation window, evaluate on
+test. Reliability diagrams and expected calibration error.
 
-*Check:* ECE falls materially while ranking AUC is unchanged. If AUC moves,
-the calibrator is doing something it should not.
+*Check:* calibration error falls substantially while AUC is unchanged. If AUC
+moves, the calibrator is altering the ranking, which it should not.
 
-### 5. Second-price auction with reserve
+### 5. Auction and reserve price
 
-Clearing against a competing-bid distribution, then a reserve-price sweep
-plotting the revenue/fill-rate frontier. The bid distribution comes from
-iPinYou's observed clearing prices, or a parametric log-normal with the
-assumption stated explicitly.
+Clear a second-price auction against a competing-bid distribution, then sweep
+the reserve price and plot revenue against fill rate. The competing bids come
+from iPinYou's observed clearing prices, or a fitted log-normal with the
+assumption stated openly.
 
-*Check:* revenue is non-monotonic in the reserve price. A monotone curve means
-the simulation is wrong — the whole point of a reserve is the trade-off between
-price and fill.
+Then the payoff: run the calibrated and uncalibrated models through the same
+auction and compare revenue. That number is the answer to the question at the
+top.
 
-### Then
+*Check:* revenue is non-monotonic in the reserve price. A curve that only rises
+means the simulation is broken; a reserve trades price against fill by
+construction, so the trade-off must appear.
 
-Deliberately deferred until v0 works end to end: contextual bandits for creative
-selection, delayed-feedback modelling for conversion attribution, budget pacing
-as a control problem, and off-policy evaluation with IPS and doubly-robust
-estimators.
+### Deferred
 
-## Status
-
-Steps 1–2 complete, 36 tests, CI green. Step 3 in progress.
+Held back deliberately until the above works end to end: contextual bandits for
+creative selection, delayed-feedback modelling for conversions, budget pacing as
+a control problem, and off-policy evaluation with inverse-propensity and
+doubly-robust estimators.
