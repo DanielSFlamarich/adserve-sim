@@ -57,6 +57,9 @@ themselves.
 
 ## The question
 
+Having worked out roughly what an ad request looks like, the obvious next
+question was what to do with one. This is the one I got interested in:
+
 **If a model ranks impressions correctly but predicts the wrong probabilities,
 what does that cost?**
 
@@ -95,23 +98,30 @@ two things *are* available, so combining them is the approach here.
 genuine features and genuine click outcomes, including the hourly rhythm of real
 usage. Everything about the environment is real and untouched.
 
-**A real request contract**, from the publicly documented
-[RUNA mobile SDK](https://rakuten-ads.github.io). The SDK is the publisher-side
-half of an ad system, the code inside an app that requests an ad, renders it,
-and fires impression, viewability and click beacons. Reading it tells you what
-fields a live server actually receives at decision time, which ad formats exist
-(banner, carousel, interstitial), and that viewability is measured through the
-IAB Open Measurement standard rather than assumed.
 
-That last detail; a viewability signal in the contract means
-viewable-eCPM, not raw eCPM, is the quantity a publisher cares about, which
-changes what the ranking function should optimise. Modelling against a real
-contract keeps the simulator's assumptions anchored to how ad serving is
-actually built, rather than to a textbook diagram.
+**A request shape** worked out from a real SDK. I came across the publicly documented
+[RUNA mobile SDK](https://rakuten-ads.github.io) and wanted to see how much of an
+ad platform could be inferred from the client-side half alone.
 
-**NOTE:** this project does not call the SDK, does not
-contact any ad server, and uses no proprietary data. It borrows the *shape* of
-the request from the public documentation and fills it with public research data.
+That is roughly the position anyone integrating against a third-party ad system
+is in: you see what your app sends and what comes back, and you reason about
+the rest.
+Two things came out of it. The first is that there are three ad formats; banner,
+carousel and interstitial which are three different kinds of inventory, and probably
+should not share one reserve price. The second is more consequential: the SDK ships
+an IAB Open Measurement adapter, so viewability is a measured signal rather than
+an assumption. That changes the objective. What a publisher maximises is viewable
+eCPM, so the ranking function here is
+
+``
+bid x pCTR x p(viewable)
+``
+
+rather than the textbook bid x pCTR. I would not have built it that way without reading
+the contract. Everything server-side stays invisible, which is exactly as it should be
+for a publisher SDK: no auction logic, no pricing, no ranking, no reporting API, and
+not a single impression record. So the traffic comes from public research datasets and
+the SDK contributes only structure. Nothing here calls the SDK or contacts any ad server.
 
 What is simulated is only the decision-making: the ranking policy, the bidder,
 the auction. Those are mine, and therefore things I can vary and measure.
@@ -171,6 +181,31 @@ Where a shortcut would let bad data pass, the code stops instead:
   feature set than intended.
 Each of these would otherwise show up weeks later as a metric that moved for no
 apparent reason.
+
+## What I could not work out
+
+The point of reading a public SDK is that you hit the edge of it. These are the
+questions the client-side contract raised and could not answer as they need
+either server-side knowledge or production logs, and the simulator's assumptions
+stand in for them:
+
+- **Is the reserve price set per format, per placement, or globally?** Three
+  inventory types with different attention profiles suggest per-format, but the
+  contract says nothing either way. The reserve sweep here assumes global,
+  which is the simpler and probably wrong answer.
+- **Does the viewability prediction feed the ranker, or is it only
+  measurement?** Open Measurement proves viewability is *measured*. Whether it
+  is also *predicted* and used at decision time is a different question, and it
+  determines whether the third term in the ranking function above is real.
+- **What does the attribution window look like?** Beacon timing implies
+  conversions arrive well after the impression, which is the delayed-label
+  problem. How long the window is changes how a model should be trained.
+- **How much does traffic seasonality distort pacing?** Retail inventory is
+  far spikier than steady app inventory. Avazu's ten days give a daily rhythm
+  but say nothing about campaign-scale or seasonal effects.
+
+Each of these is currently a stated assumption in the code rather than a
+measured value. That is the honest state of a simulator built from outside.
 
 ## Layout
 
