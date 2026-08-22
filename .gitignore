@@ -1,7 +1,7 @@
 # macOS
 .DS_Store
 
-# Datasets; download scripts only
+# datasets; download scripts only
 data/raw/*
 data/interim/*
 data/processed/*
@@ -10,7 +10,7 @@ data/processed/*
 *.parquet
 *.gz
 
-# Traffic captures; never publish endpoints or tokens
+# traffic captures; never publish endpoints or tokens
 *.har
 *.pcap
 captures/
@@ -19,12 +19,21 @@ captures/
 mlruns/
 mlartifacts/
 
-# Python
+# python
 __pycache__/
 *.py[cod]
 .venv/
+.env
 .mypy_cache/
 .ruff_cache/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# ml model
+*.cbm
+catboost_info/
+
+# notebooks
+.ipynb_checkpoints/
+.idea/

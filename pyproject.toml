@@ -27,7 +27,9 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
+    "ipykernel>=7.3.0",
     "kaggle>=2.2.4",
+    "matplotlib>=3.11.1",
     "mypy>=2.3.0",
     "pandas-stubs>=3.0.5.260730",
     "pre-commit>=4.6.2",
