@@ -47,15 +47,18 @@ DEFAULT_SAMPLE_ROWS: int = 3_000_000
 CHUNK_ROWS: int = 1_000_000
 
 _MANUAL_INSTRUCTIONS = f"""
-Raw file not found and the Kaggle CLI is unavailable.
+Raw file not found.
 
 To fetch it manually:
   1. Accept the competition rules at
      https://www.kaggle.com/competitions/{COMPETITION}/rules
+     Downloads are refused until the rules are accepted, even with valid
+     credentials, and listing files still works, so this failure is easy to
+     mistake for an auth problem.
   2. Download the data and place `{RAW_FILENAME}` at:
      {{target}}
 
-The Kaggle CLI route needs an API token at ~/.kaggle/kaggle.json; see
+The Kaggle CLI route needs an API token at ~/.kaggle/access_token; see
 https://www.kaggle.com/docs/api
 """
 
@@ -117,8 +120,20 @@ def fetch_raw(raw_dir: Path = RAW_DIR) -> Path:
             check=True,
             capture_output=True,
         )
-    except (subprocess.CalledProcessError, FileNotFoundError) as exc:
-        raise FileNotFoundError(_MANUAL_INSTRUCTIONS.format(target=target)) from exc
+    except subprocess.CalledProcessError as exc:
+        # the CLI ran and refused, message says why: usually unaccepted
+        # competition rules, and capture_output means nobody sees it unless we
+        # put it back.
+        detail = exc.stderr.decode(errors="replace").strip()
+        raise FileNotFoundError(
+            f"{_MANUAL_INSTRUCTIONS.format(target=target)}\nKaggle CLI reported:\n{detail}"
+        ) from exc
+    except FileNotFoundError as exc:
+        # the CLI is not installed at all.
+        raise FileNotFoundError(
+            f"{_MANUAL_INSTRUCTIONS.format(target=target)}\n"
+            "(@_@) The kaggle CLI was not found; install it with: uv add --dev kaggle"
+        ) from exc
 
     # CLI may deliver either the file itself or a zip wrapping it.
     archive = raw_dir / f"{RAW_FILENAME}.zip"

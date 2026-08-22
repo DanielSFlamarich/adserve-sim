@@ -21,7 +21,7 @@ Not affiliated with, endorsed by, or derived from any ad platform operator.
 what does that cost?**
 
 Ranking quality only cares about order. Multiply every prediction by 1.5 and
-the order is untouched — AUC does not move at all.
+the order is untouched and AUC does not move at all.
 
 But an ad server does not only rank, it prices. A bid is roughly
 `value_of_a_click × predicted_click_probability`, so if the second term is 50%
@@ -34,7 +34,7 @@ models is AUC, and AUC cannot see it. Calibration drifts, offline evaluation
 says nothing, and it shows up in spend.
 
 Measuring the cost needs an auction. On a static dataset you can compute a
-calibration error and report it as a number, but not what it was worth —
+calibration error and report it as a number, but not what it was worth;
 "worth" only exists once bids compete for a slot.
 
 ## Data
@@ -284,5 +284,8 @@ make data          # fetch and prepare the sample
 
 `make check` is the gate and it runs exactly what CI runs, in the same order.
 
-You'll need a Kaggle account for the Avazu download, and Python 3.12.
-`uv` installs it if you don't have it. Everything else comes from `uv.lock`.
+You'll need Python 3.12. uv installs it if you don't have it and everything else comes
+from uv.lock.
+The Avazu download needs a Kaggle account, an API token at ~/.kaggle/access_token,
+and acceptance of the competition rules at the rules page. The last one is easy to
+miss: without it, listing the competition's files still works but downloading returns a generic error.
