@@ -58,7 +58,7 @@ strict = true
 warn_unreachable = true
 
 [[tool.mypy.overrides]]
-module = ["catboost.*", "mlflow.*", "sklearn.*"]
+module = ["catboost.*", "mlflow.*", "sklearn.*", "scipy.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
