@@ -40,8 +40,8 @@ calibration error and report it as a number, but not what it was worth;
 ## Data
 
 Real traffic, real clicks, real hourly rhythm from a public research dataset.
-**What is simulated is only the decision-making: the ranking policy, the bidder,
-the auction.**
+**What is simulated is the decision layer and the market around it: the bid,
+the rivals it competes against, and the auction that clears them.**
 
 | Dataset | Role | Licence |
 |---|---|---|
@@ -52,10 +52,11 @@ CLI and prints manual instructions if credentials are missing, since the
 competition requires accepting its rules interactively.
 
 Everything the auction needs beyond that is invented, and deliberately so.
-Competing bids are drawn from a fitted log-normal, viewability from a prior on
-slot position. Both are assumptions with sensitivity analyses around them,
-not attempts to look like measurements. This is an exercise in how the pieces
-fit together, and a made-up bid distribution answers that as well as a real one would.
+Competing bids are drawn from a log-normal centred on the median honest
+bid; `sample_competing_bids` in `auction/second_price.py`, with `DEFAULT_N_COMPETITORS = 5`
+and `DEFAULT_BID_SIGMA = 0.6`. Viewability is a hardcoded prior on slot position:
+`VIEWABILITY_PRIOR` in `auction/ranking.py`, seven values encoding only the assumption
+that position 0 is seen more than position 7.
 
 ## Concepts
 
@@ -91,6 +92,21 @@ the auctions you still win, but wins fewer of them.
 **Calibration**: whether predicted probabilities match observed frequencies.
 Across all impressions scored at 2%, did about 2% get clicked?
 
+**Drift**: Calibration can degrade (drift) over time. Cheap to monitor, since it
+needs only
+predictions and outcomes that are already logged, and it usually
+moves before online KPIs do. Often a symptom of *data drift* (the input mix
+changed) or *concept drift* (the same inputs now imply a different click rate),
+so it works as a leading indicator for both.
+
+**Selection bias**: a different reason probabilities can be wrong: the training
+data itself is unrepresentative, because you only observe outcomes for
+impressions you won. Post-hoc calibration cannot fix this. A model can be
+perfectly calibrated on what it won and systematically blind to what it stopped
+bidding on. The asymmetry matters as over-prediction is self-correcting (win
+more, see the bad outcomes, retrain pulls it down) while under-prediction is
+self-perpetuating (stop winning, get no data, nothing contradicts it).
+
 **AUC**: whether likelier clicks are ranked above less likely ones. A question
 about *order*, not about the numbers themselves.
 
@@ -98,9 +114,7 @@ about *order*, not about the numbers themselves.
 
 I came across the publicly documented [RUNA mobile SDK](https://rakuten-ads.github.io)
 and wanted to see how much of an ad platform could be inferred from the
-client-side half alone. That is roughly the position anyone integrating with a
-third-party ad system is in: you see what your app sends and what comes back,
-and you reason about the rest.
+client-side half alone.
 
 Two things came out of it:
 
@@ -108,10 +122,11 @@ Two things came out of it:
   inventory with different attention profiles, which probably should not share
   one reserve price.
 - **An IAB Open Measurement adapter**, so viewability is measured rather than
-  assumed. The docs establish that it is *measured*; the step to "therefore
-  viewable eCPM is the objective" is my inference. If it holds, the ranking
-  function is `bid × pCTR × p(viewable)` rather than the textbook
-  `bid × pCTR`.
+  assumed. The docs establish that viewability is measured; the step to "therefore
+  it belongs in the ranking function" is my inference. If it holds, the serving
+  decision maximises `bid × pCTR × p(viewable)` rather than the textbook `bid × pCTR`.
+  Note: this is what the server maximises when choosing an ad, not what any model is
+  trained on. The click model's target stays click.
 
 Everything server-side stays invisible, exactly as it should for a publisher
 SDK: no auction logic, no pricing, no ranking, no reporting API, not one
@@ -124,7 +139,7 @@ the point where the real answer would go:
 
 | Finding | With server access | Here |
 |---|---|---|
-| Open Measurement -> viewable eCPM | Fit `p(viewable)` on measured viewability; ask whether it feeds the ranker or only reporting | Prior on slot position, varied to measure sensitivity `auction/ranking.py` |
+| Open Measurement -> viewable eCPM | Fit `p(viewable)` on measured viewability; ask whether it feeds the ranker or only reporting | `VIEWABILITY_PRIOR` in `auction/ranking.py`; seven hardcoded values by `banner_pos`. The function takes an override, but this iteration doesn't use it; the sensitivity analysis is unrun. |
 | Three formats -> per-format reserve | Sweep the reserve per format and placement | Sweep per `banner_pos`, the nearest structural analogue `auction/second_price.py` |
 | Request contract | Observe the wire format | Not done. `AdRequest` carries Avazu's schema `sim/replay.py` |
 
@@ -154,8 +169,10 @@ CatBoost does for free.
 The model's target is **`click`**, a 0/1 column. CatBoost fits it with log
 loss and outputs a probability.
 
-Avazu carries no conversion, purchase or revenue data, so `value_of_a_click` is
-a parameter, not a measurement. In reality it comes from the advertiser's own
+Avazu carries no conversion, purchase or revenue data, so what a click is worth
+is a parameter, not a measurement: `DEFAULT_VALUE_PER_CLICK = 1.0` in `auction/ranking.py`,
+which makes every currency figure below a multiple of "one click's worth".
+In reality it comes from the advertiser's own
 conversion model. Revenue figures here are therefore *simulated publisher
 revenue under an assumed click value*. The calibrated-versus-uncalibrated
 comparison holds for any constant value, which is the point; the absolute
@@ -182,10 +199,27 @@ A missing column raises rather than producing a model trained on a different
 feature set than intended.
 
 **Name assumptions, don't bury them.** Competing bids, viewability... none are
-in the public data. Each is a stated assumption with a
-sensitivity analysis, not a number chosen quietly to make results look
-reasonable. The point is that when real logs replace an assumption, you know
-which result moves.
+in the public data. Each is stated where it is used rather than chosen quietly
+to make results look reasonable. Sensitivity analysis around them is the obvious
+next step and is not done yet. The point is that when real logs replace an
+assumption, you know which result moves.
+
+## Every invented number, and where it lives
+
+| Assumption | Value | Where |
+|---|---|---|
+| Value of a click | 1.0 | `DEFAULT_VALUE_PER_CLICK`, `auction/ranking.py` |
+| Viewability by slot | 0.75 → 0.25 across `banner_pos` | `VIEWABILITY_PRIOR`, `auction/ranking.py` |
+| Rivals per auction | 5 (swept over 1, 2, 5) | `DEFAULT_N_COMPETITORS`, `auction/second_price.py` |
+| Competing-bid spread | log-normal, σ = 0.6, centred on median honest bid | `sample_competing_bids`, `auction/second_price.py` |
+| Reserve price | swept 0 → 0.5 | notebook `03-auction.ipynb` |
+| Train/validation/test | 7 / 1 / 2 days | `split_by_day` defaults, `data/split.py` |
+| Encoder smoothing | 20 pseudo-observations | `DEFAULT_SMOOTHING`, `features/build.py` |
+| Distortion magnitudes | shift ±0.4, sharpness 1.5 / 0.6 | `STANDARD_SCENARIOS`, `eval/distortion.py` |
+
+None of these is fitted. Each is chosen to be plausible and stated where it is
+used; changing any of them changes the numbers, and none of the conclusions
+depend on a specific value rather than on the direction of an effect.
 
 ## Plan
 

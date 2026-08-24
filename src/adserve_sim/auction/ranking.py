@@ -52,8 +52,10 @@ import numpy as np
 #: position, invented, with the ordering encoding one weak assumption: position
 #: 0 is the most prominent and later positions are progressively less likely to
 #: enter the viewport. Magnitudes span a plausible range rather than being
-#: correct. Pass a different table to measure how much the assumption matters
-#: that sensitivity is the answerable version of the question.
+#: correct. The function accepts an override so a different table can be passed,
+# but this iteration does not use it: the prior is hardcoded and the sensitivity
+# analysis is unrun. That would be the answerable version of the question: how
+# much does the assumption move the result (left for a later pass).
 VIEWABILITY_PRIOR: dict[str, float] = {
     "0": 0.75,
     "1": 0.60,
