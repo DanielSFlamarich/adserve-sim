@@ -117,12 +117,19 @@ Everything server-side stays invisible, exactly as it should for a publisher
 SDK: no auction logic, no pricing, no ranking, no reporting API, not one
 impression record. Nothing here calls the SDK or contacts any ad server.
 
-**Both inferences turn out to be untestable as stated**, because the public data
-lacks the fields. Avazu has no format column and no viewability labels. So the
-simulator bounds them instead of claiming them: the reserve sweep segments by
-slot position, the nearest structural analogue to format, and viewability enters
-as a prior with a sensitivity analysis around it. Neither is a measurement.
-Both show how much the question matters.
+**Both inferences are untestable as stated**, because the public data lacks the
+fields. Avazu has no format column and no viewability labels. So the simulator
+bounds them instead of claiming them, and each bound is marked in the code at
+the point where the real answer would go:
+
+| Finding | With server access | Here |
+|---|---|---|
+| Open Measurement -> viewable eCPM | Fit `p(viewable)` on measured viewability; ask whether it feeds the ranker or only reporting | Prior on slot position, varied to measure sensitivity `auction/ranking.py` |
+| Three formats -> per-format reserve | Sweep the reserve per format and placement | Sweep per `banner_pos`, the nearest structural analogue `auction/second_price.py` |
+| Request contract | Observe the wire format | Not done. `AdRequest` carries Avazu's schema `sim/replay.py` |
+
+The third is a scoping decision rather than a data limitation: running the
+sample app behind a proxy would have shown the wire format, and it was left out.
 
 ## Why CatBoost
 First, latency. A real ad server has tens of milliseconds for the whole

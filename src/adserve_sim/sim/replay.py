@@ -32,6 +32,17 @@ from adserve_sim.data.schema import (
 
 logger = logging.getLogger(__name__)
 
+#: The fields here come from Avazu's schema, not from RUNA.
+#:
+#: The original intent was to shape AdRequest after a real ad request, running
+#: the published sample app behind a proxy, observing what the SDK actually
+#: sends, and mapping Avazu's columns onto those fields. That was scoped out
+#: rather than done, so what a live server receives at decision time remains
+#: unknown here beyond what the public integration docs describe. The structural
+#: commitment this class does make, features and no label, outcome held
+#: separately, is a property of any honest replay, not something learned from
+#: the SDK.
+
 
 @dataclass(frozen=True)
 class AdRequest:

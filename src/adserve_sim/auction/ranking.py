@@ -38,6 +38,22 @@ import numpy as np
 #: encodes one weak assumption: position 0 is the most prominent slot and later
 #: positions are progressively less likely to enter the viewport. Magnitudes are
 #: chosen to span a plausible range rather than to be correct.
+#: Assumed probability that a slot is actually seen, by ``banner_pos``.
+#:
+#: with access to RUNA's server side this table would not exist. The SDK ships
+#: an IAB Open Measurement adapter, so viewability is already being measured
+#: per impression; those measurements would be joined to the request log and a
+#: p(viewable) model fitted on them, exactly as pCTR is fitted here. The
+#: interesting question would then be whether the platform *predicts*
+#: viewability at decision time or only records it afterwards, which decides
+#: whether this term belongs in the ranking function at all.
+#:
+#: From outside, none of that is observable. What is left is a prior on slot
+#: position, invented, with the ordering encoding one weak assumption: position
+#: 0 is the most prominent and later positions are progressively less likely to
+#: enter the viewport. Magnitudes span a plausible range rather than being
+#: correct. Pass a different table to measure how much the assumption matters
+#: that sensitivity is the answerable version of the question.
 VIEWABILITY_PRIOR: dict[str, float] = {
     "0": 0.75,
     "1": 0.60,
