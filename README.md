@@ -204,10 +204,27 @@ calling a library does not.
 *Check:* test AUC beats a frequency-only baseline; both encoders recorded as
 separate runs.
 
-**4. Calibration**: isotonic regression and Platt scaling fitted on validation,
-evaluated on test. Reliability diagrams and expected calibration error.
-*Check:* calibration error falls substantially while AUC is unchanged. If AUC
-moves, the calibrator is altering the ranking, which it should not.
+**4. Calibration**: the honest version of this step is that a public dataset can't
+deliver the failure it was meant to demonstrate. Avazu is a competition file, and
+Kaggle's own description states clicks and non-clicks were subsampled at different
+rates before release. The $16.9%$ click rate is real for this file and inflated
+relative to the traffic it came from.
+
+Two consequences. A model fitted here is calibrated to a distribution that does not
+exist (deployed against real traffic it would over-predict by roughly two orders of magnitude),
+which is precisely the failure this project studies, except the correction is a log-odds
+offset of an unpublished constant and so cannot be applied. And a $16.9%$ base rate is a
+comfortable estimation problem; real display `CTR` near $0.2%$ is where probability
+estimates actually break, and that regime isn't in the file.
+
+On top of that, the fitting was done the way that makes calibration most likely: Logloss is
+a proper scoring rule, penalising wrong probabilities directly rather than only wrong ordering,
+and early stopping fired at iteration 408 before the model could grow confident enough to distort.
+Measured gap: +0.0026 on a 16.4% base rate. See `notebooks/01-avazu-eda.ipynb`.
+
+So the miscalibration has to be manufactured. Distort a good model by a known amount, affine in
+$log-odds — a·logit(p) + b$, which stays in range and separates the two failure modes: b shifts
+the base rate, a changes sharpness.
 
 **5. Auction and reserve price**: clear a second-price auction against a synthetic
 competing-bid distribution, sweep the reserve, plot revenue against fill rate.
