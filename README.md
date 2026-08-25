@@ -217,9 +217,13 @@ assumption, you know which result moves.
 | Encoder smoothing | 20 pseudo-observations | `DEFAULT_SMOOTHING`, `features/build.py` |
 | Distortion magnitudes | shift ±0.4, sharpness 1.5 / 0.6 | `STANDARD_SCENARIOS`, `eval/distortion.py` |
 
-None of these is fitted. Each is chosen to be plausible and stated where it is
-used; changing any of them changes the numbers, and none of the conclusions
-depend on a specific value rather than on the direction of an effect.
+None of these is fitted. Each is chosen to be plausible and stated where it is used.
+One caveat on how far that goes: the calibration comparison is robust to the click
+value, since a constant multiplies every bid equally and cancels. The auction results
+are not equally robust. The reserve finding depends on the competing-bid spread, and
+which scenario wins depends on the budget level. Those are conclusions about
+conditions, not about numbers, which is why the budget sweep reports several levels
+rather than one.
 
 ## Plan
 
@@ -271,9 +275,25 @@ the base rate, a changes sharpness.
 competing-bid distribution, sweep the reserve, plot revenue against fill rate.
 Then the payoff: run the calibrated and uncalibrated models through the same
 auction and compare.
-*Check:* revenue is non-monotonic in the reserve price. A curve that only rises
-means the simulation is broken. A reserve trades price against fill by
-construction, so the trade-off must appear.
+*Check*: revenue is non-monotonic in the reserve price. It is, but weakly (with five rivals the
+peak sits barely above the no-reserve level, because the runner-up's bid already captures most of
+the surplus). The effect only becomes material in thin auctions: with one rival the optimum
+is worth about 8% over no reserve at all. Whether a floor is worth setting turns out to depend
+on how many bidders show up.
+
+**6. Budget**: cap spending and re-run every scenario. Without a cap, over-predicting
+is *more* profitable than honest bidding, in a second-price auction you pay the
+runner-up's bid, so bidding above your value wins extra auctions at prices someone
+else sets, and while ROI collapses, volume more than compensates. Unlimited money
+was an unstated assumption doing a great deal of work.
+
+Once spend is capped the ranking inverts, and the interesting part is that it inverts
+differently at different budgets. At a cap equal to what honest bidding naturally
+spends, over-predicting loses about 38%. At a quarter of that, the *timid* models win
+— under-prediction becomes an accidental virtue when money rather than opportunity is
+the binding constraint.
+
+*Check:* over-bidding exhausts the budget strictly earlier than honest bidding.
 
 ```
 0. Read the RUNA SDK          public docs, no code used
@@ -285,9 +305,11 @@ construction, so the trade-off must appear.
           ↓
 3. Click model                build.py, train.py
           ↓
-4. Calibration                calibrate.py, reliability.py
+4. Calibration                distortion.py, reliability.py
           ↓
 5. Auction and reserve        ranking.py, second_price.py
+          ↓
+6. Budget                     budget.py
 ```
 
 Steps 1–4 are pure Avazu work and would be unchanged if the SDK did not exist.
@@ -315,9 +337,10 @@ for them.
   daily rhythm but say nothing about campaign-scale or seasonal effects.
 
 
-**Deferred** until the above works end to end: contextual bandits for creative
-selection, delayed-feedback modelling, budget pacing as a control problem,
-off-policy evaluation with IPS and doubly-robust estimators.
+*Deferred*: contextual bandits for creative selection, delayed-feedback modelling,
+off-policy evaluation with IPS and doubly-robust estimators, and a real pacing
+controller, `pacing_rate` in `auction/budget.py` is a fixed participation rate,
+where a production pacer would use feedback on realised spend.
 
 ## Layout
 
@@ -327,9 +350,8 @@ src/adserve_sim/
   sim/       replay.py
   features/  build.py
   models/    train.py
-tests/       one file per module
-reports/     written findings and figures
-references/  dataset licences, SDK contract notes
+  eval/      distortion.py, reliability.py
+  auction/   ranking.py, second_price.py, budget.py
 ```
 
 ## Running it
